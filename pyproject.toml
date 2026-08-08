@@ -7,4 +7,5 @@ dependencies = [
     "elevenlabs>=2.62.0",
     "pypdf>=6.15.0",
     "streamlit>=1.61.1",
+    "supabase>=2.31.0",
 ]
