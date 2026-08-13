@@ -1,1 +1,0 @@
-- [Streamlit startup](streamlit-startup.md) — launch through the project executable in headless mode to avoid the first-run onboarding prompt.
