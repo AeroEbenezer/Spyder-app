@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { createClient } from "@supabase/supabase-js";
-import { Headphones, UploadCloud, Library, LogOut, FileText, CheckCircle2 } from "lucide-react";
+import { UploadCloud, Library, LogOut, FileText, CheckCircle2, Play, Pause, Trash2 } from "lucide-react";
 
 export default function SpyderApp() {
   const [supabaseClient] = useState(() => {
@@ -17,6 +17,10 @@ export default function SpyderApp() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [statusText, setStatusText] = useState("");
+  const [generatedAudio, setGeneratedAudio] = useState<any>(null);
+  const [audiobooks, setAudiobooks] = useState<any[]>([]);
+  const [playingId, setPlayingId] = useState<string | null>(null);
+  const [audioRef] = useState(() => typeof Audio !== 'undefined' ? new Audio() : null);
   const [logoError, setLogoError] = useState(false);
 
   useEffect(() => {
@@ -30,6 +34,28 @@ export default function SpyderApp() {
     return () => subscription.unsubscribe();
   }, [supabaseClient]);
 
+  useEffect(() => {
+    if (activeTab === "library" && user) {
+      fetchAudiobooks();
+    }
+  }, [activeTab, user]);
+
+  const fetchAudiobooks = async () => {
+    if (!supabaseClient || !user) return;
+    try {
+      const { data, error } = await supabaseClient
+        .from("audiobooks")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false });
+
+      if (error) throw error;
+      setAudiobooks(data || []);
+    } catch (err) {
+      console.error("Error fetching audiobooks:", err);
+    }
+  };
+
   const handleGoogleSignIn = async () => {
     if (!supabaseClient) {
       setUser({ email: "commander.khaly@spyder.app", id: "demo-user-123" });
@@ -42,16 +68,22 @@ export default function SpyderApp() {
   };
 
   const handleSignOut = async () => {
+    if (audioRef) {
+      audioRef.pause();
+      audioRef.src = "";
+    }
     if (supabaseClient) {
       await supabaseClient.auth.signOut();
     }
     setUser(null);
+    setPlayingId(null);
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       setSelectedFile(e.target.files[0]);
       setStatusText("");
+      setGeneratedAudio(null);
     }
   };
 
@@ -60,7 +92,6 @@ export default function SpyderApp() {
     setIsProcessing(true);
 
     try {
-      // 1. Upload directly to Supabase from the browser
       setStatusText("Uploading document to storage...");
       const safeName = selectedFile.name.replace(/[^a-zA-Z0-9.-]/g, "_");
       const rawFilePath = `raw/${Date.now()}_${safeName}`;
@@ -70,15 +101,13 @@ export default function SpyderApp() {
         .upload(rawFilePath, selectedFile, { upsert: true });
 
       if (uploadError) {
-        throw new Error(`Storage upload failed: ${uploadError.message}. (Check bucket RLS policies)`);
+        throw new Error(`Storage upload failed: ${uploadError.message}`);
       }
 
-      // 2. Get the public URL of the uploaded file
       const { data: publicUrlData } = supabaseClient.storage
         .from("audiobooks")
         .getPublicUrl(rawFilePath);
 
-      // 3. Send just the URL to the Next.js API (Tiny payload = No 502 crashes)
       setStatusText("Synthesizing audio on server...");
       const res = await fetch("/api/synthesize", {
         method: "POST",
@@ -102,9 +131,16 @@ export default function SpyderApp() {
         throw new Error(data.error || "Synthesis failed");
       }
 
-      console.log("Success! Audio URL:", data.audioUrl);
-      setStatusText("Audiobook generated successfully!");
+      setGeneratedAudio({
+        title: selectedFile.name,
+        audioUrl: data.audioUrl,
+        duration: "Generated",
+      });
+      setStatusText("✅ Audiobook generated successfully!");
       setSelectedFile(null);
+      
+      // Refresh library
+      setTimeout(() => fetchAudiobooks(), 1000);
     } catch (err: any) {
       console.error("Error during synthesis:", err);
       setStatusText(err.message || "An error occurred during synthesis.");
@@ -113,8 +149,37 @@ export default function SpyderApp() {
     }
   };
 
+  const togglePlayAudio = (audioUrl: string, id: string) => {
+    if (!audioRef) return;
+
+    if (playingId === id && audioRef.src === audioUrl) {
+      if (audioRef.paused) {
+        audioRef.play();
+        setPlayingId(id);
+      } else {
+        audioRef.pause();
+        setPlayingId(null);
+      }
+    } else {
+      audioRef.src = audioUrl;
+      audioRef.play();
+      setPlayingId(id);
+    }
+  };
+
+  const deleteAudiobook = async (id: string) => {
+    if (!supabaseClient) return;
+    try {
+      const { error } = await supabaseClient.from("audiobooks").delete().eq("id", id);
+      if (error) throw error;
+      fetchAudiobooks();
+    } catch (err) {
+      console.error("Error deleting audiobook:", err);
+    }
+  };
+
   const RenderLogo = ({ sizeClass = "w-10 h-10" }: { sizeClass?: string }) => {
-    if (logoError) return <Headphones className={`${sizeClass} text-indigo-500`} />;
+    if (logoError) return <div className={`${sizeClass} bg-indigo-600 rounded-lg flex items-center justify-center`} />;
     return (
       <img
         src="/logo.png"
@@ -170,6 +235,7 @@ export default function SpyderApp() {
             <Library className="w-4 h-4" /> My Library
           </button>
         </div>
+
         {activeTab === "convert" ? (
           <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-8 space-y-6">
             <div className="text-center space-y-2">
@@ -191,12 +257,68 @@ export default function SpyderApp() {
               </button>
             )}
             {statusText && <p className="text-center text-xs text-indigo-400 font-mono mt-2 break-words">{statusText}</p>}
+
+            {generatedAudio && (
+              <div className="bg-zinc-800/50 border border-zinc-700 rounded-lg p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="font-semibold text-sm">{generatedAudio.title}</h3>
+                    <p className="text-xs text-zinc-400">Ready to play</p>
+                  </div>
+                  <button
+                    onClick={() => togglePlayAudio(generatedAudio.audioUrl, "generated")}
+                    className="p-2 bg-indigo-600 hover:bg-indigo-500 rounded-full transition-colors"
+                  >
+                    {playingId === "generated" && audioRef && !audioRef.paused ? (
+                      <Pause className="w-4 h-4" />
+                    ) : (
+                      <Play className="w-4 h-4" />
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         ) : (
-          <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-8 text-center space-y-4">
-            <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto" />
-            <h2 className="text-lg font-semibold">Your Library is Syncing</h2>
-            <p className="text-zinc-400 text-sm">All processed audiobooks for <span className="text-white font-mono">{user.email}</span> will persist here automatically.</p>
+          <div className="space-y-4">
+            {audiobooks.length === 0 ? (
+              <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-8 text-center space-y-4">
+                <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto" />
+                <h2 className="text-lg font-semibold">Your Library is Empty</h2>
+                <p className="text-zinc-400 text-sm">Convert documents to audiobooks in the Studio tab to see them here.</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {audiobooks.map((book) => (
+                  <div key={book.id} className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-4 space-y-3 hover:border-zinc-700 transition-colors">
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <h3 className="font-semibold text-sm truncate">{book.title}</h3>
+                        <p className="text-xs text-zinc-400">
+                          {new Date(book.created_at).toLocaleDateString()} • {book.is_public ? "Public" : "Private"}
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => togglePlayAudio(book.audio_file_url, book.id)}
+                        className="p-2 bg-indigo-600 hover:bg-indigo-500 rounded-full transition-colors flex-shrink-0"
+                      >
+                        {playingId === book.id && audioRef && !audioRef.paused ? (
+                          <Pause className="w-4 h-4" />
+                        ) : (
+                          <Play className="w-4 h-4" />
+                        )}
+                      </button>
+                    </div>
+                    <button
+                      onClick={() => deleteAudiobook(book.id)}
+                      className="w-full py-2 bg-zinc-800 hover:bg-zinc-700 text-xs font-medium rounded transition-colors flex items-center justify-center gap-2"
+                    >
+                      <Trash2 className="w-3 h-3" /> Delete
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>
