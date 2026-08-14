@@ -117,7 +117,7 @@ export default function SpyderApp() {
     if (logoError) return <Headphones className={`${sizeClass} text-indigo-500`} />;
     return (
       <img
-        src="/logo.jpg"
+        src="/logo.png"
         alt="Spyder Logo"
         className={`${sizeClass} object-cover rounded-lg border border-zinc-800`}
         onError={() => setLogoError(true)}
