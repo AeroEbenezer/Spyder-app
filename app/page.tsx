@@ -68,16 +68,23 @@ export default function SpyderApp() {
   };
 
   const handleSignOut = async () => {
-    if (audioRef) {
-      audioRef.pause();
-      audioRef.src = "";
-    }
-    if (supabaseClient) {
-      await supabaseClient.auth.signOut();
-    }
-    setUser(null);
-    setPlayingId(null);
-  };
+  if (audioRef) {
+    audioRef.pause();
+    audioRef.src = "";
+  }
+  if (supabaseClient) {
+    await supabaseClient.auth.signOut();
+  }
+  // Force clear all local data
+  localStorage.clear();
+  sessionStorage.clear();
+  setUser(null);
+  setPlayingId(null);
+  setAudiobooks([]);
+  
+  // Redirect to login
+  window.location.href = '/';
+};
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
