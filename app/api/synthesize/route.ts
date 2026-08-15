@@ -36,7 +36,7 @@ export async function POST(req: Request) {
     }
 
     const text = buffer.toString("utf-8");
-    const trimmedText = text.replace(/\s+/g, " ").trim().slice(0, 500);
+    const trimmedText = text.replace(/\s+/g, " ").trim().slice(0, 4000);
 
     if (!trimmedText) {
       return NextResponse.json({ error: "File is empty" }, { status: 400 });
